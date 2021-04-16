@@ -34,7 +34,9 @@ class DTD2(torch.utils.data.Dataset):
         img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
         self.transform = self.transformations(training=is_train)
         # change to give labels
-        return self.transform(img), os.path.join(self.root_dir, image_location)
+
+        
+        return self.transform(img), 
 
     def transformations(self, training=True): # standard image transforms from DTD2
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
