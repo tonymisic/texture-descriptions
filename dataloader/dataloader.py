@@ -33,6 +33,7 @@ class DTD2(torch.utils.data.Dataset):
     def read_image(self, image_location, is_train): # open and transform image, return image and location
         img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
         self.transform = self.transformations(training=is_train)
+        # change to give labels
         return self.transform(img), os.path.join(self.root_dir, image_location)
 
     def transformations(self, training=True): # standard image transforms from DTD2
