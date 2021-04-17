@@ -1,216 +1,279 @@
-import json
-import os
-import random
-import re
+"""Information Retrieval metrics
+Useful Resources:
+http://www.cs.utexas.edu/~mooney/ir-course/slides/Evaluation.ppt
+http://www.nii.ac.jp/TechReports/05-014E.pdf
+http://www.stanford.edu/class/cs276/handouts/EvaluationNew-handout-6-per.pdf
+http://hal.archives-ouvertes.fr/docs/00/72/67/60/PDF/07-busa-fekete.pdf
+Learning to Rank for Information Retrieval (Tie-Yan Liu)
+"""
 import numpy as np
-from PIL import Image
-from torch.utils.data import Dataset
+from dataloader import dataloader
 
-data_path = 'data_api/data'
+def mean_reciprocal_rank(rs):
+    """Score is reciprocal of the rank of the first relevant item
+    First element is 'rank 1'.  Relevance is binary (nonzero is relevant).
+    Example from http://en.wikipedia.org/wiki/Mean_reciprocal_rank
+    >>> rs = [[0, 0, 1], [0, 1, 0], [1, 0, 0]]
+    >>> mean_reciprocal_rank(rs)
+    0.61111111111111105
+    >>> rs = np.array([[0, 0, 0], [0, 1, 0], [1, 0, 0]])
+    >>> mean_reciprocal_rank(rs)
+    0.5
+    >>> rs = [[0, 0, 0, 1], [1, 0, 0], [1, 0, 0]]
+    >>> mean_reciprocal_rank(rs)
+    0.75
+    Args:
+        rs: Iterator of relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        Mean reciprocal rank
+    """
+    rs = (np.asarray(r).nonzero()[0] for r in rs)
+    return np.mean([1. / (r[0] + 1) if r.size else 0. for r in rs])
 
+def r_precision(r):
+    """Score is precision after all relevant documents have been retrieved
+    Relevance is binary (nonzero is relevant).
+    >>> r = [0, 0, 1]
+    >>> r_precision(r)
+    0.33333333333333331
+    >>> r = [0, 1, 0]
+    >>> r_precision(r)
+    0.5
+    >>> r = [1, 0, 0]
+    >>> r_precision(r)
+    1.0
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        R Precision
+    """
+    r = np.asarray(r) != 0
+    z = r.nonzero()[0]
+    if not z.size:
+        return 0.
+    return np.mean(r[:z[-1] + 1])
 
-class TextureDescriptionData:
-    def __init__(self, phrase_split='train', phrase_freq_thresh=10, phid_format='set'):
-        self_path = os.path.realpath(__file__)
-        self_dir = os.path.dirname(self_path)
-        self.data_path = os.path.join(self_dir, 'data')
+def precision_at_k(r, k):
+    """Score is precision @ k
+    Relevance is binary (nonzero is relevant).
+    >>> r = [0, 0, 1]
+    >>> precision_at_k(r, 1)
+    0.0
+    >>> precision_at_k(r, 2)
+    0.0
+    >>> precision_at_k(r, 3)
+    0.33333333333333331
+    >>> precision_at_k(r, 4)
+    Traceback (most recent call last):
+        File "<stdin>", line 1, in ?
+    ValueError: Relevance score length < k
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        Precision @ k
+    Raises:
+        ValueError: len(r) must be >= k
+    """
+    assert k >= 1
+    r = np.asarray(r)[:k] != 0
+    if r.size != k:
+        raise ValueError('Relevance score length < k')
+    return np.mean(r)
 
-        with open(os.path.join(self.data_path, 'image_splits.json'), 'r') as f:
-            self.img_splits = json.load(f)
+def mean_precision_at_k(rs, k):
+    """Score is precision @ k
+    Relevance is binary (nonzero is relevant).
+    >>> r = [0, 0, 1]
+    >>> precision_at_k(r, 1)
+    0.0
+    >>> precision_at_k(r, 2)
+    0.0
+    >>> precision_at_k(r, 3)
+    0.33333333333333331
+    >>> precision_at_k(r, 4)
+    Traceback (most recent call last):
+        File "<stdin>", line 1, in ?
+    ValueError: Relevance score length < k
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        Precision @ k
+    Raises:
+        ValueError: len(r) must be >= k
+    """
+    assert k >= 1
+    rs = np.asarray(rs)[:, :k] != 0
+    if rs.shape[1] != k:
+        raise ValueError('Relevance score length < k')
+    return np.mean(rs)
 
-        self.phrases = list()
-        self.phrase_freq = list()
-        if phrase_split == 'all':
-            phrase_freq_file = 'phrase_freq.txt'
-        elif phrase_split == 'train':
-            phrase_freq_file = 'phrase_freq_train.txt'
+def mean_recall_at_k(rs, k, gt_count=None):
+    """
+    Added by Chenyun. if gt_count_sum not provided, r should cover all candidates
+    """
+    assert k >= 1
+    rs = np.asarray(rs)
+    if gt_count is None:
+        gt_count = np.sum(rs, axis=1)
+    pred_num = np.sum(rs[:, :k], axis=1)
+    recall = np.nan_to_num(pred_num * 1.0 / gt_count)
+    return np.mean(recall)
+
+def average_precision(r):
+    """Score is average precision (area under PR curve)
+    Relevance is binary (nonzero is relevant).
+    >>> r = [1, 1, 0, 1, 0, 1, 0, 0, 0, 1]
+    >>> delta_r = 1. / sum(r)
+    >>> sum([sum(r[:x + 1]) / (x + 1.) * delta_r for x, y in enumerate(r) if y])
+    0.7833333333333333
+    >>> average_precision(r)
+    0.78333333333333333
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        Average precision
+    """
+    r = np.asarray(r) != 0
+    out = [precision_at_k(r, k + 1) for k in range(r.size) if r[k]]
+    if not out:
+        return 0.
+    return np.mean(out)
+
+def mean_average_precision(rs):
+    """Score is mean average precision
+    Relevance is binary (nonzero is relevant).
+    >>> rs = [[1, 1, 0, 1, 0, 1, 0, 0, 0, 1]]
+    >>> mean_average_precision(rs)
+    0.78333333333333333
+    >>> rs = [[1, 1, 0, 1, 0, 1, 0, 0, 0, 1], [0]]
+    >>> mean_average_precision(rs)
+    0.39166666666666666
+    Args:
+        rs: Iterator of relevance scores (list or numpy) in rank order
+            (first element is the first item)
+    Returns:
+        Mean average precision
+    """
+    return np.mean([average_precision(r) for r in rs])
+
+def dcg_at_k(r, k, method=0):
+    """Score is discounted cumulative gain (dcg)
+    Relevance is positive real values.  Can use binary
+    as the previous methods.
+    Example from
+    http://www.stanford.edu/class/cs276/handouts/EvaluationNew-handout-6-per.pdf
+    >>> r = [3, 2, 3, 0, 0, 1, 2, 2, 3, 0]
+    >>> dcg_at_k(r, 1)
+    3.0
+    >>> dcg_at_k(r, 1, method=1)
+    3.0
+    >>> dcg_at_k(r, 2)
+    5.0
+    >>> dcg_at_k(r, 2, method=1)
+    4.2618595071429155
+    >>> dcg_at_k(r, 10)
+    9.6051177391888114
+    >>> dcg_at_k(r, 11)
+    9.6051177391888114
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+        k: Number of results to consider
+        method: If 0 then weights are [1.0, 1.0, 0.6309, 0.5, 0.4307, ...]
+                If 1 then weights are [1.0, 0.6309, 0.5, 0.4307, ...]
+    Returns:
+        Discounted cumulative gain
+    """
+    r = np.asfarray(r)[:k]
+    if r.size:
+        if method == 0:
+            return r[0] + np.sum(r[1:] / np.log2(np.arange(2, r.size + 1)))
+        elif method == 1:
+            return np.sum(r / np.log2(np.arange(2, r.size + 2)))
         else:
-            raise NotImplementedError
-        with open(os.path.join(self.data_path, phrase_freq_file), 'r') as f:
-            lines = f.readlines()
-            for line in lines:
-                phrase, freq = line.split(' : ')
-                if int(freq) < phrase_freq_thresh:
-                    break
-                self.phrases.append(phrase)
-                self.phrase_freq.append(int(freq))
+            raise ValueError('method must be 0 or 1.')
+    return 0.
 
-        self.phrase_phid_dict = {p: i for i, p in enumerate(self.phrases)}
-        self.phid_format = phid_format
+def ndcg_at_k(r, k, method=0):
+    """Score is normalized discounted cumulative gain (ndcg)
+    Relevance is positive real values.  Can use binary
+    as the previous methods.
+    Example from
+    http://www.stanford.edu/class/cs276/handouts/EvaluationNew-handout-6-per.pdf
+    >>> r = [3, 2, 3, 0, 0, 1, 2, 2, 3, 0]
+    >>> ndcg_at_k(r, 1)
+    1.0
+    >>> r = [2, 1, 2, 0]
+    >>> ndcg_at_k(r, 4)
+    0.9203032077642922
+    >>> ndcg_at_k(r, 4, method=1)
+    0.96519546960144276
+    >>> ndcg_at_k([0], 1)
+    0.0
+    >>> ndcg_at_k([1], 2)
+    1.0
+    Args:
+        r: Relevance scores (list or numpy) in rank order
+            (first element is the first item)
+        k: Number of results to consider
+        method: If 0 then weights are [1.0, 1.0, 0.6309, 0.5, 0.4307, ...]
+                If 1 then weights are [1.0, 0.6309, 0.5, 0.4307, ...]
+    Returns:
+        Normalized discounted cumulative gain
+    """
+    dcg_max = dcg_at_k(sorted(r, reverse=True), k, method)
+    if not dcg_max:
+        return 0.
+    return dcg_at_k(r, k, method) / dcg_max
 
-        self.img_data_dict = dict()
-        with open(os.path.join(self.data_path, 'image_descriptions.json'), 'r') as f:
-            data = json.load(f)
-        for img_d in data:
-            img_d['phrase_ids'] = self.descpritions_to_phids(img_d['descriptions'])
-            self.img_data_dict[img_d['image_name']] = img_d
+def retrieve_eval(match_scores, dataset=None, split='val', mode=None):
+    if dataset is None:
+        dataset = dataloader.TextureDescriptionData(phid_format='set')
+    gt_matrix = dataset.get_img_phrase_match_matrices(split)
+    img_num = gt_matrix.shape[0]
+    phrase_num = gt_matrix.shape[1]
 
-        self.img_phrase_match_matrices = dict()
-        print('TextureDescriptionData ready. \n{ph_num} phrases with frequency above {freq}.\n'
-              'Image count: train {train}, val {val}, test {test}'
-              .format(ph_num=len(self.phrases), freq=phrase_freq_thresh, train=len(self.img_splits['train']),
-                      val=len(self.img_splits['val']), test=len(self.img_splits['test'])))
+    if mode == 'i2p':
+        # each row is prediction for one image. phrase sorted by pred scores. values are whether the phrase is correct
+        i2p_correct = np.zeros_like(gt_matrix, dtype=bool)  # img_num x phrase_num
+        i2p_phrase_idxs = np.zeros_like(i2p_correct, dtype=int)
+        for img_i in range(img_num):
+            phrase_idx_sorted = np.argsort(-match_scores[img_i, :])
+            i2p_phrase_idxs[img_i] = phrase_idx_sorted
+            i2p_correct[img_i] = gt_matrix[img_i, phrase_idx_sorted]
+        retrieve_binary_lists = i2p_correct
+        retrieve_idxs = i2p_phrase_idxs
+    elif mode == 'p2i':
+        # each row is prediction for one prhase. images sorted by pred scores. values are whether the image is correct
+        p2i_correct = np.zeros_like(gt_matrix, dtype=bool).transpose()  # class_num x img_num
+        p2i_img_idxs = np.zeros_like(p2i_correct, dtype=int)
+        for pi in range(phrase_num):
+            img_idx_sorted = np.argsort(-match_scores[:, pi])
+            p2i_img_idxs[pi] = img_idx_sorted
+            p2i_correct[pi] = gt_matrix[img_idx_sorted, pi]
+        retrieve_binary_lists = p2i_correct
+        retrieve_idxs = p2i_img_idxs
+    else:
+        raise NotImplementedError
 
-    def phid_to_phrase(self, phid):
-        if phid > len(self.phrases) or phid < 0:
-            return '<UNK>'
-        return self.phrases[phid]
+    # calculate metrics
+    metrics = dict()
+    mean_reciprocal_rank_ = mean_reciprocal_rank(retrieve_binary_lists)
+    r_precision_ = r_precision(retrieve_binary_lists)
+    mean_average_precision_ = mean_average_precision(retrieve_binary_lists)
+    metrics['mean_reciprocal_rank'] = mean_reciprocal_rank_
+    metrics['r_precision'] = r_precision_
+    metrics['mean_average_precision'] = mean_average_precision_
 
-    def phrase_to_phid(self, phrase):
-        return self.phrase_phid_dict.get(phrase, -1)
-
-    @staticmethod
-    def description_to_phrases(desc):
-        segments = re.split('[,;]', desc)
-        phrases = list()
-        for seg in segments:
-            phrase = seg.strip()
-            if len(phrase) > 0:
-                phrases.append(phrase)
-        return phrases
-
-    def descpritions_to_phids(self, descriptions, phid_format=None):
-        if phid_format is None:
-            phid_format = self.phid_format
-
-        if phid_format is None:
-            return None
-
-        phrases = set()
-        if phid_format == 'str':
-            for desc in descriptions:
-                phrases.update(self.description_to_phrases(desc))
-            return phrases
-
-        phids = list()
-        for desc in descriptions:
-            phrases = self.description_to_phrases(desc)
-            phids_desc = [self.phrase_to_phid(ph) for ph in phrases]
-            phids.append(phids_desc)
-
-        if phid_format == 'nested_list':
-            return phids
-
-        elif phid_format == 'phid_freq':
-            phid_freq = dict()
-            for phids_desc in phids:
-                for phid in phids_desc:
-                    phid_freq[phid] = phid_freq.get(phid, 0) + 1
-            return phid_freq
-
-        elif phid_format == 'set':
-            phid_set = set()
-            for phids_desc in phids:
-                phid_set.update(phids_desc)
-            return phid_set
-
-        else:
-            raise NotImplementedError
-
-    def description_to_phids_smart(self, desc):
-        phids = set()
-        phrases = self.description_to_phrases(desc)
-        for ph in phrases:
-            if ph in self.phrases:
-                phids.add(self.phrase_to_phid(ph))
-            else:
-                for wd in WordEncoder.tokenize(ph):
-                    if wd in self.phrases:
-                        phids.add(self.phrase_to_phid(wd))
-        return phids
-
-    def get_img_phrase_match_matrices(self, split):
-        if split in self.img_phrase_match_matrices:
-            return self.img_phrase_match_matrices[split]
-        img_num = len(self.img_splits[split])
-        phrase_num = len(self.phrases)
-
-        match = np.zeros((img_num, phrase_num), dtype=int)
-        for img_i, img_name in enumerate(self.img_splits[split]):
-            img_data = self.img_data_dict[img_name]
-            if self.phid_format == 'set':
-                phid_set = img_data['phrase_ids']
-            else:
-                phid_set = self.descpritions_to_phids(img_data['descriptions'], phid_format='set')
-            for phid in phid_set:
-                if phid >= 0:
-                    match[img_i, phid] = 1
-        self.img_phrase_match_matrices[split] = match
-        return match
-
-    def get_gt_phrase_count(self, split):
-        gt_phrase_count = np.zeros(len(self.img_splits[split]))
-        for img_i, img_name in enumerate(self.img_splits[split]):
-            phrases = set()
-            img_data = self.img_data_dict[img_name]
-            for desc in img_data['descriptions']:
-                phrases.update(self.description_to_phrases(desc))
-            gt_phrase_count[img_i] = len(phrases)
-        return gt_phrase_count
-
-
-
-class WordEncoder:
-    def __init__(self, word_freq_file='word_freq_train.txt', word_freq_thresh=5, special_chars=",;/&()-'"):
-        self_path = os.path.realpath(__file__)
-        self_dir = os.path.dirname(self_path)
-        data_path = os.path.join(self_dir, 'data')
-
-        self.word_list = ['<pad>']
-        self.word_freq = [0]
-        self.word_map = None
-
-        with open(os.path.join(data_path, word_freq_file), 'r') as f:
-            lines = f.readlines()
-            for line in lines:
-                word, freq = line.split(' : ')
-                if int(freq) < word_freq_thresh:
-                    break
-                self.word_list.append(word)
-                self.word_freq.append(int(freq))
-
-        if special_chars is not None:
-            self.word_list += [ch for ch in special_chars]
-            self.word_freq += [1] * len(special_chars)
-        self.word_list += ['<unk>', '<start>', '<end>']
-        self.word_freq += [0, 0, 0]
-
-        self.word_map = {w: idx for idx, w in enumerate(self.word_list)}
-
-    @staticmethod
-    def tokenize(lang_input):
-        words = re.split('(\W)', lang_input)
-        words = [w.strip() for w in words if len(w.strip()) > 0]
-        return words
-
-    def detokenize(self, tokens):
-        caption = ' '.join(tokens)
-        for ch in ',;':
-            caption = caption.replace(' ' + ch + ' ', ch + ' ')
-        for ch in "/()-'":
-            caption = caption.replace(' ' + ch + ' ', ch)
-        return caption
-
-    def encode(self, lang_input, max_len=-1):
-        tokens = ['<start>'] + self.tokenize(lang_input) + ['<end>']
-        encoded = [self.word_map.get(word, self.word_map['<unk>']) for word in tokens]
-        if max_len <= 0:
-            return encoded, len(encoded)
-        if len(encoded) >= max_len:
-            return encoded[:max_len], max_len
-        l = len(encoded)
-        encoded += [self.word_map['<pad>']] * (max_len - len(encoded))
-        return encoded, l
-
-    def encode_pad(self, lang_inputs):
-        encoded = list()
-        lens = list()
-        for lang in lang_inputs:
-            e, l = self.encode(lang, max_len=-1)
-            encoded.append(e)
-            lens.append(l)
-        max_l = max(lens)
-        padded = np.zeros((len(encoded), max_l), dtype=np.long)
-        for i in range(len(encoded)):
-            padded[i, :lens[i]] = encoded[i]
-        return padded, lens
+    for k in [5, 10, 20, 50, 100]:
+        precision_at_k_ = mean_precision_at_k(retrieve_binary_lists, k)
+        recall_at_k_ = mean_recall_at_k(retrieve_binary_lists, k, gt_count=None)
+        metrics['precision_at_%03d' % k] = precision_at_k_
+        metrics['recall_at_%03d' % k] = recall_at_k_
+    print('## retrieve_eval {mode} on {split} ##'.format(mode=mode, split=split))
+    return metrics
