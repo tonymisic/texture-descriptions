@@ -58,16 +58,19 @@ criterion_i = nn.TripletMarginLoss(margin=1.0, p=2)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 train_data = dataloader.DTD2Triple('dtd/images', 'image_descriptions.json', 'image_splits.json', split='train')
-train_loader = torch.utils.data.DataLoader(train_data, batch_size=50, shuffle=True, num_workers=2)
-# anchor_image, pos_image, neg_image, anchor_embedding, pos_embedding, neg_embedding
-for images, embeddings in train_loader:
-    images = images.to(device)
-    embeddings = embeddings.to(device)
-    image_features = model(images)
+train_loader = torch.utils.data.DataLoader(train_data, batch_size=15, shuffle=True, num_workers=2)
+
+for [anchor_image, anchor_embedding, pos_image, pos_embedding, neg_image, neg_embedding] in train_loader:
+    anchor_image, anchor_embedding, pos_image = anchor_image.to(device), anchor_embedding.to(device), pos_image.to(device)
+    pos_embedding, neg_image, neg_embedding = pos_embedding.to(device), neg_image.to(device), neg_embedding.to(device)
+    anchor_features = model(anchor_image)
+    pos_features = model(pos_image)
+    neg_features = model(neg_image)
     optimizer.zero_grad()
-    loss = criterion_p() + criterion_i()
+    loss = criterion_p(anchor_embedding, pos_features, neg_features) + criterion_i(anchor_features, pos_embedding, neg_embedding)
     loss.backward()
     optimizer.step()
+    break
     # record phrase, image, and overall loss
 torch.save(model.state_dict(), 'save_files/metric/epoch' + str(0) + '.pth')
 print("Done.")

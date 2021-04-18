@@ -1,4 +1,4 @@
-import torch, os, json, re, numpy as np, torch.nn as nn
+import torch, os, json, re, numpy as np, torch.nn as nn, random
 from PIL import Image
 from torchvision import transforms
 from transformers import BertTokenizer, BertModel
@@ -56,6 +56,7 @@ class DTD2Triple(torch.utils.data.Dataset):
         self.descriptions = json.load(open(os.path.join(root_dir, descriptions))) # json file
         self.transform = None
         self.data = TextureDescriptionData()
+        self.max_idx = 0
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True)
         self.linear = nn.Linear(768, 256) # hardcoded
@@ -81,10 +82,36 @@ class DTD2Triple(torch.utils.data.Dataset):
             return len(self.splits['val'])
     
     def read_image(self, image_location, is_train, index): # open and transform image, return image
-        img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
         self.transform = self.transformations(training=is_train)
-        # from: https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/
+        # anchor farming
+        anchor_img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
         descriptions = self.descriptions[index]['descriptions']
+        anchor_caption = self.embed_sentences(descriptions)
+        label = image_location.split('/')[0]
+        # positive farming
+        possible = os.listdir('./dtd/images/' + label)
+        rand = random.randint(0, len(possible) - 1)
+        pos_img_location = label + '/' + possible[rand]
+        while pos_img_location == image_location:
+            rand = random.randint(0, len(possible) - 1)
+            pos_img_location = label + '/' + possible[rand]
+        pos_img = Image.open(os.path.join(self.root_dir, pos_img_location)).convert('RGB')
+        pos_caption = self.embed_sentences(self.get_descriptions(pos_img_location))
+        # negative farming
+        neg_img_location = self.descriptions[random.randint(0, len(self.descriptions)-1)]['image_name']
+        while neg_img_location.split('/')[0] == label:
+            neg_img_location = self.descriptions[random.randint(0, len(self.descriptions)-1)]['image_name']
+        neg_img = Image.open(os.path.join(self.root_dir, neg_img_location)).convert('RGB')
+        neg_caption = self.embed_sentences(self.get_descriptions(neg_img_location))
+        return self.transform(anchor_img), anchor_caption, self.transform(pos_img), pos_caption, self.transform(neg_img), neg_caption
+
+    def get_descriptions(self, image_name):
+        for i in self.descriptions:
+            if i['image_name'] == image_name:
+                return i['descriptions']
+
+    def embed_sentences(self, descriptions):
+        # from: https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/
         embeddings = list()
         for sentence in descriptions:
             text = '[CLS] ' + sentence + ' [SEP]'
@@ -99,8 +126,8 @@ class DTD2Triple(torch.utils.data.Dataset):
         final_embedding = torch.mean(torch.FloatTensor([t.detach().numpy() for t in embeddings]), dim=0)
         with torch.no_grad():
             final_embedding = self.linear(final_embedding)
-        return self.transform(img), final_embedding, image_location.split('/')[0]
-
+        return final_embedding
+    
     def transformations(self, training=True): # standard image transforms from DTD2
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         if training:
