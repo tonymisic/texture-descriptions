@@ -15,7 +15,7 @@ wandb.init(project="texture-descriptions",
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # cuda device
 # their resnet modifications are copied here
 model = Predictor.Predictor(class_num=655, backbone='resnet101', pretrained_backbone=True, use_feats=(2,4,), fc_dims=(512,))
-model.load_state_dict(torch.load('save_files/epoch16.pth'))
+model.load_state_dict(torch.load('save_files/discriminative/epoch76.pth'))
 model.to(device)
 model.eval()
 wandb.watch(model) # send reports to wandb
@@ -46,28 +46,11 @@ wandb.log({
 })
 wandb.log({
     "Image2Phrase Precision@5": score1['precision_at_005'],
-    "Image2Phrase Precision@10": score1['precision_at_010'],
     "Image2Phrase Precision@20": score1['precision_at_020'],
-    "Image2Phrase Precision@50": score1['precision_at_050'],
-    "Image2Phrase Precision@100": score1['precision_at_100'],
-
     "Phrase2Image Precision@5": score2['precision_at_005'],
-    "Phrase2Image Precision@10": score2['precision_at_010'],
     "Phrase2Image Precision@20": score2['precision_at_020'],
-    "Phrase2Image Precision@50": score2['precision_at_050'],
-    "Phrase2Image Precision@100": score2['precision_at_100'],
-})
-
-wandb.log({
     "Image2Phrase Recall@5": score1['recall_at_005'],
-    "Image2Phrase Recall@10": score1['recall_at_010'],
     "Image2Phrase Recall@20": score1['recall_at_020'],
-    "Image2Phrase Recall@50": score1['recall_at_050'],
-    "Image2Phrase Recall@100": score1['recall_at_100'],
-
     "Phrase2Image Recall@5": score2['recall_at_005'],
-    "Phrase2Image Recall@10": score2['recall_at_010'],
-    "Phrase2Image Recall@20": score2['recall_at_020'],
-    "Phrase2Image Recall@50": score2['recall_at_050'],
-    "Phrase2Image Recall@100": score2['recall_at_100'],
+    "Phrase2Image Recall@20": score2['recall_at_020']
 })

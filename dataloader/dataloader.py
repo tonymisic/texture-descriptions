@@ -1,7 +1,7 @@
-import torch, os, json, re, numpy as np
+import torch, os, json, re, numpy as np, torch.nn as nn
 from PIL import Image
 from torchvision import transforms
-
+from transformers import BertTokenizer, BertModel
 class DTD2(torch.utils.data.Dataset):
     def __init__(self, root_dir, descriptions, splits, split=None):
         self.root_dir = root_dir
@@ -48,6 +48,65 @@ class DTD2(torch.utils.data.Dataset):
         else:
             return transforms.Compose([ transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])
 
+class DTD2Triple(torch.utils.data.Dataset):
+    def __init__(self, root_dir, descriptions, splits, split=None):
+        self.root_dir = root_dir
+        self.split = split
+        self.splits = json.load(open(os.path.join(root_dir, splits))) # json file
+        self.descriptions = json.load(open(os.path.join(root_dir, descriptions))) # json file
+        self.transform = None
+        self.data = TextureDescriptionData()
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True)
+        self.linear = nn.Linear(768, 256) # hardcoded
+    
+    def __getitem__(self, index): # return (augmented_image, label)
+        if self.split == None:
+            return None
+        elif self.split == 'train':
+            return self.read_image(self.splits['train'][index], True, index)
+        elif self.split == 'test':
+            return self.read_image(self.splits['test'][index], False, index)
+        elif self.split == 'val':
+            return self.read_image(self.splits['val'][index], False, index)
+
+    def __len__(self): # returns length of current split.
+        if self.split == None:
+            return len(self.splits['train']) + len(self.splits['test']) + len(self.splits['val'])
+        elif self.split == 'train':
+            return len(self.splits['train'])
+        elif self.split == 'test':
+            return len(self.splits['test'])
+        elif self.split == 'val':
+            return len(self.splits['val'])
+    
+    def read_image(self, image_location, is_train, index): # open and transform image, return image
+        img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
+        self.transform = self.transformations(training=is_train)
+        # from: https://mccormickml.com/2019/05/14/BERT-word-embeddings-tutorial/
+        descriptions = self.descriptions[index]['descriptions']
+        embeddings = list()
+        for sentence in descriptions:
+            text = '[CLS] ' + sentence + ' [SEP]'
+            tokenized_text = self.tokenizer.tokenize(text)
+            indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_text)
+            segments_ids = [1] * len(indexed_tokens)
+            tokens_tensor, segments_tensors = torch.tensor([indexed_tokens]), torch.tensor([segments_ids])
+            outputs = self.model(tokens_tensor, segments_tensors)
+            token_vecs = outputs.hidden_states[-2][0]
+            sentence_embedding = torch.mean(token_vecs, dim=0)
+            embeddings.append(sentence_embedding)
+        final_embedding = torch.mean(torch.FloatTensor([t.detach().numpy() for t in embeddings]), dim=0)
+        with torch.no_grad():
+            final_embedding = self.linear(final_embedding)
+        return self.transform(img), final_embedding, image_location.split('/')[0]
+
+    def transformations(self, training=True): # standard image transforms from DTD2
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        if training:
+            return transforms.Compose([ transforms.RandomResizedCrop(224), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize])
+        else:
+            return transforms.Compose([ transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])
 
 data_path = '/home/tmisic/texture-descriptions/dtd/images/'
 class TextureDescriptionData:
