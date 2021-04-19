@@ -60,7 +60,7 @@ class DTD2Triple(torch.utils.data.Dataset):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True)
         self.linear = nn.Linear(768, 256) # hardcoded
-    
+        self.count = 0
     def __getitem__(self, index): # return (augmented_image, label)
         if self.split == None:
             return None
@@ -89,14 +89,20 @@ class DTD2Triple(torch.utils.data.Dataset):
         anchor_caption = self.embed_sentences(descriptions)
         label = image_location.split('/')[0]
         # positive farming
-        possible = os.listdir('./dtd/images/' + label)
-        rand = random.randint(0, len(possible) - 1)
-        pos_img_location = label + '/' + possible[rand]
-        while pos_img_location == image_location:
+        try:
+            possible = os.listdir('./dtd/images/' + label)
             rand = random.randint(0, len(possible) - 1)
             pos_img_location = label + '/' + possible[rand]
-        pos_img = Image.open(os.path.join(self.root_dir, pos_img_location)).convert('RGB')
-        pos_caption = self.embed_sentences(self.get_descriptions(pos_img_location))
+            while pos_img_location == image_location:
+                rand = random.randint(0, len(possible) - 1)
+                pos_img_location = label + '/' + possible[rand]
+            pos_img = Image.open(os.path.join(self.root_dir, pos_img_location)).convert('RGB')
+            pos_caption = self.embed_sentences(self.get_descriptions(pos_img_location))
+        except Exception:
+            self.count += 1
+            pos_img = Image.open(os.path.join(self.root_dir, image_location)).convert('RGB')
+            pos_caption = self.embed_sentences(self.get_descriptions(image_location))
+            print("Use default as positive " + str(self.count) + " times...")
         # negative farming
         neg_img_location = self.descriptions[random.randint(0, len(self.descriptions)-1)]['image_name']
         while neg_img_location.split('/')[0] == label:
