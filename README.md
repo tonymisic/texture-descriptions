@@ -1,2 +1,2 @@
 # texture-descriptions
-Re-implementation of the main contributions in "Describing Textures with Natural Language"
+Re-implementation study of the main contributions in "Describing Textures with Natural Language"
