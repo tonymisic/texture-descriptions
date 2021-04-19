@@ -5,7 +5,7 @@ from torchvision import models, transforms
 from torchvision.models.resnet import Bottleneck, model_urls
 
 class Predictor(nn.Module):
-    def __init__(self, class_num, backbone='resnet101', pretrained_backbone=True, use_feats=(4,),
+    def __init__(self, class_num, backbone='resnet101', pretrained_backbone=True, use_feats=(2,4,),
                  fc_dims=(512,)):
         super(Predictor, self).__init__()
         self.img_encoder = ResnetEncoder(backbone, pretrained_backbone, use_feats)
