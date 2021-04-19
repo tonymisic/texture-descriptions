@@ -45,5 +45,5 @@ for images, gts in eval_loader:
                 phrase = eval_data.data.phid_to_phrase(id).replace(" ", "")
                 gt_captions.append(phrase)
             f_gt_captions.append(gt_captions)
-    score = bleu_score(f_gt_captions, f_pred_captions)
+    score = bleu_score(f_gt_captions, f_pred_captions) # changed each time for bleu score 1,2,3,4
     wandb.log({"score": score})
