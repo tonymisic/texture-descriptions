@@ -17,9 +17,16 @@ wget https://github.com/ChenyunWu/DescribingTextures/raw/master/data_api/data/ph
 wget https://github.com/ChenyunWu/DescribingTextures/raw/master/data_api/data/word_freq.txt
 wget https://github.com/ChenyunWu/DescribingTextures/raw/master/data_api/data/word_freq_train.txt
 ```
-Download my code:
+Download my code (CUDA 11 Env):
+```
+cd ../..
+wget https://github.com/tonymisic/texture-descriptions.git
+pip install -r requirements.txt
 ```
 
+## Running experiments
+To run my code you will be prompted to make a wandb account, for more details see: https://wandb.ai/site
 ```
-
-## Running Code
+python <filename>
+```
+Some files are left incomplete due to non reproducible results, and therefore will not run properly.
