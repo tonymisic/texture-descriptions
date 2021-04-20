@@ -3,3 +3,6 @@ Re-implementation study of the main contributions in "Describing Textures with N
 
 ## Setup
 DTD^2 Download:
+```
+> wget https://www.robots.ox.ac.uk/~vgg/data/dtd/download/dtd-r1.0.1.tar.gz
+```
